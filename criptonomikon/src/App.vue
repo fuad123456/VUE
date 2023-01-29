@@ -48,31 +48,31 @@
 				</section>
 				<template v-if="tickers.length" >
 					<hr/>
-					<p>Фильтр: 
-						<input 
+					<p>Фильтр:
+						<input
 							v-model="filtered"
 							@input="page=1"
-						/> 
+						/>
 
-						<button 
+						<button
 							class="my-4 mx-2 inline-flex items-center py-2 px-4 border border-transparent shadow-sm text-sm leading-4 font-medium rounded-full text-white bg-gray-600 hover:bg-gray-700 transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
 							@click="page=page-1"
 							v-if="page>1"
-							>Назад</button> 
-						
-							<button 
+							>Назад</button>
+							<button
 							class="my-4 mx-2 inline-flex items-center py-2 px-4 border border-transparent shadow-sm text-sm leading-4 font-medium rounded-full text-white bg-gray-600 hover:bg-gray-700 transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
 							@click="page=page+1"
 							v-if="hasNextPage"
 							>Вперед</button></p>
 					<hr class="w-full border-t border-gray-600 my-4" />
 					<dl class="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-3">
+						<!-- ТУТ поля filteredTickers computed это только поля поля поэтому вызова фуенкции не происходит и мы передаем только поле -->
 						<div
-							v-for="t in filteredTickers()"
-							:key='t.name' 
+							v-for="t in paginatedTickers"
+							:key='t.name'
 							@click="selected(t)"
 							:class="{
-								'border-4':select===t
+								'border-4':selectedTicker===t
 							}"
 							class="bg-white overflow-hidden shadow rounded-lg border-purple-800 border-solid cursor-pointer">
 							<div class="px-4 py-5 sm:p-6 text-center">
@@ -97,19 +97,19 @@
 
 					</dl>
 					<hr class="w-full border-t border-gray-600 my-4" />
-					<section v-if="select" class="relative">
+					<section v-if="selectedTicker" class="relative">
 						<h3 class="text-lg leading-6 font-medium text-gray-900 my-8">
-							{{ select.name }} - USD
+							{{ selectedTicker.name }} - USD
 						</h3>
 						<div class="flex items-end border-gray-600 border-b border-l h-24">
-							<div 
-							v-for=" (bar,idx) in normalizeGraph()"
+							<div
+							v-for=" (bar,idx) in normalizedGraph"
 							:key="idx"
 							:style="{ height:`${bar}%` }"
 							class="bg-purple-800 border w-10 h-24 "></div>
 						</div>
 						
-						<button @click="select=null" type="button" class="absolute top-0 right-0">
+						<button @click="selectedTicker=null" type="button" class="absolute top-0 right-0">
 							<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
 								xmlns:svgjs="http://svgjs.com/svgjs" version="1.1" width="30" height="30" x="0" y="0"
 								viewBox="0 0 511.76 511.76" style="enable-background:new 0 0 512 512"
@@ -140,13 +140,14 @@
 // 8. При удалении тикеров не удаляются тткеры с локал стораж
 // 9. График ужасно выглядит если будет много цен
 // 10.Наличие сотоянии зависимых данных
+// 11.При удалении тикера остается выбор
 export default {
 	name: 'App',
 	data() {
 		return {
 			ticker: '',
 			tickers: [],
-			select:null,
+			selectedTicker:null,
 			graph:[],
 			list:[],
 			filter:[],
@@ -154,19 +155,62 @@ export default {
 			addedTicker:false,
 			page:1,
 			filtered:'',
-			hasNextPage:true,
+			// hasNextPage:true, // так его можн посчитать (в computed) => мы его убираем
 		}
+	},
+	computed:{//computed это только поля и он занимается тем что он вычиляет и кэширует результат
+		startIndex(){
+			return (this.page - 1)*6
+		},
+
+		endIndex(){
+			return (this.page *6)
+		},
+
+		filteredTickers(){
+			return this.tickers.filter(t=>t.name.includes(this.filtered))
+		},
+
+		paginatedTickers(){
+			return this.filteredTickers.slice(this.startIndex,this.endIndex)
+		},
+
+		hasNextPage(){
+			return this.filteredTickers.length>this.endIndex
+		},
+		normalizedGraph(){
+			const max=Math.max(...this.graph)
+			const min=Math.min(...this.graph)
+			if(max===min){
+				return this.graph.map(()=>50)
+			}
+			const newGraph=this.graph.map(price=>{
+				return Math.floor((5+((price-min)*95)/(max-min)))
+			})
+			return newGraph;
+		},
+		pageStateOptions(){
+			return {
+				filtered:this.filtered,
+				page:this.page
+			}
+		},
 	},
 	created(){
 		this.fetchTodos()
 		const windowData=Object.fromEntries(new URL(window.location).searchParams.entries())
-		if(windowData.filter){
-			this.filter=windowData.filter
-		}
-		if(windowData.page){
-			this.page=windowData.page
-		}
-		
+		const VALID_KEYS=['filter','page']
+		VALID_KEYS.forEach(key=>{
+			if(windowData[key]){
+				this[key]=windowData[key];
+			}
+		})
+		// if(windowData.filter){
+		// 	this.filter=windowData.filter
+		// }
+		// if(windowData.page){
+		// 	this.page=windowData.page
+		// }
 		const tickersData=localStorage.getItem('cryptonomicon-list')
 		if(tickersData){
 			this.tickers=JSON.parse(tickersData)
@@ -181,27 +225,17 @@ export default {
 				const f= await fetch(`https://min-api.cryptocompar.com/data/price?fsym=${tickerName}&tsyms=USD&api_key=5a9c19d2a6ff27a3b96a8151e570ebff83e15fe3a10d3c219c146648adab9878`)
 				const data = await f.json()
 				this.tickers.find(t=>t.name===tickerName).price=data['USD']>1? data['USD'].toFixed(2) : data['USD'].toPrecision(2)
-				if(this.select?.name===tickerName){
+				if(this.selectedTicker?.name===tickerName){
 					this.graph.push(data['USD'])
 				}
 			},100000)
 			this.ticker = ''
 		},
 
-		filteredTickers(){
-			const start=(this.page-1)*6
-			const end=this.page*6;
-			this.hasNextPage
-			const filteredTickers = this.tickers
-					.filter(t=>t.name.includes(this.filtered))
-			this.hasNextPage=filteredTickers.length>end
-		return filteredTickers.slice(start,end)
-		},
-
 		add() {
 			let newTicker = { name: this.ticker, price: '10' }
-			this.tickers.push(newTicker)
-			localStorage.setItem('cryptonomicon-list',JSON.stringify(this.tickers))
+			this.tickers=[...this.tickers, newTicker]
+
 			this.subscribetoUpdates(newTicker.name)
 			this.filtered=''
 			this.ticker=''
@@ -220,24 +254,16 @@ export default {
 				// 	console.log(this.list);
 				// },3000)
 		},
-		normalizeGraph(){
-			const max=Math.max(...this.graph)
-			const min=Math.min(...this.graph)
-
-			const newGraph=this.graph.map(price=>{
-				return Math.floor((5+((price-min)*95)/(max-min)))
-			})
-			console.log(newGraph);
-			return newGraph;
-		},
-
+		
 		selected(ticker){
-
-			this.select=ticker;
-			this.graph=[]
+			this.selectedTicker=ticker;
 		},
+
 		remove(remItem) {
 			this.tickers = this.tickers.filter(remI => remI !== remItem);
+			if(this.selectedTicker===remItem){
+			this.selectedTicker=null
+			}
 		},
 		filterByInput(){
 			this.filter=[]
@@ -259,17 +285,27 @@ export default {
 		}
 
 	},
-	watch:{ //позволяетс следить за переменными
-		filtered(){//переменная работает  как фугкция
+	watch:{ //позволяетс следить за переменными: Основной концепт если изменилось что то .... ТО сделай то то...
+		filtered(){//переменная работает  как функция
 			this.page=1;
-			window.history
-			.pushState(null, document.title,
-			`${window.location.pathname}?filter=${this.filtered}?page=${this.page}`)
 		},
-		page(){
+		selectedTicker(){
+			this.graph=[]
+		},
+		tickers(newValue,oldValue){
+			console.log(newValue,oldValue);
+			localStorage.setItem('cryptonomicon-list',JSON.stringify(this.tickers))
+		},
+		paginatedTickers(){
+			if(this.paginatedTickers.length === 0 && this.page > 1){
+				this.page-=1
+			}
+		},
+		pageStateOptions(value){
 			window.history
 			.pushState(null, document.title,
-			`${window.location.pathname}?filter=${this.filtered}?page=${this.page}`)
+			`${window.location.pathname}?filter=${value.filtered}?page=${value.page}`)
+			console.log(value);
 		}
 	},
 	mounted(){
